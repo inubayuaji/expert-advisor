@@ -14,11 +14,7 @@
  * 12 januari 2021 posisi awal sell (6)
 
 # Pengembangan kedepan
-- risk menenegement tidak ada, kapan waktunya tidak lagi menggunakan zone recovery
-- kalkulasi maxsimal lot tidak ada sehingga diperlukkan mekanisme berapa maksimal lot
-- mencegah terjadinya banayak zone recovery
 - cara menghitung compund atau inisial lot saat modal sudah bertamba
-- calculasi nanti disederhanakkan agar perhitungan lebih cepat
 
 # Catatan
 untuk penerapan dasar EA ini sudah sesui tinggal kurang dikembangkan lagi agar lebih baik
@@ -26,14 +22,14 @@ sudah bisa dilakukan testing ke pair lainya
 */
 #property copyright "Inu Bayu Aji"
 #property link      "https://github.com/inubayuaji"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
-
+//--- input paramater
 input int recoveryZoneGap = 200; // Recovery Gap in Point
 input int recoveryZoneExit = 400; // Recovery Exit in Point
-
+input double initialLotSize = 0.01; // Initial Lot Size
+//--- global variable
 bool inTrade = false;
-int orderCount;
 int newOrderCount;
 int nextOrderType;
 int zoneRecoveryCount = 0;
@@ -42,43 +38,36 @@ double sellLotTotal = 0;
 double upperRecoveryZone;
 double lowerRecoveryZone;
 double middleRecoveryZone;
+double upperRecoveryZoneProfit;
+double lowerRecoveryZoneProfit;
 double riskRewardRatio;
+double devider;
 double multiplier;
-
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
+    devider = MathPow(10, Digits);
     riskRewardRatio = recoveryZoneExit / recoveryZoneGap;
     multiplier = (riskRewardRatio + 1) / riskRewardRatio;
-    orderCount = OrderTotalForCurrentSymbol();
 
     DrawOBjects();
 
+    if(initialLotSize > MarketInfo(Symbol(), MODE_MAXLOT) || initialLotSize < MarketInfo(Symbol(), MODE_MINLOT)) {
+        return INIT_PARAMETERS_INCORRECT;
+    }
+
     return INIT_SUCCEEDED;
 }
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
     DeleteObjects();
 }
 //+------------------------------------------------------------------+
-//| Expert tick function                                             |
-//+------------------------------------------------------------------+
 void OnTick() {
-    EventListener();
+    if(IsTesting()) {
+        TestingEventListener();
+    }
 
-    if(!inTrade) {
-        newOrderCount = OrderTotalForCurrentSymbol();
-
-        if(orderCount < newOrderCount) {
-            inTrade = true;
-            orderCount = newOrderCount;
-
-            HandleFirstOrder();
-        }
-    } else {
+    if(inTrade) {
         // make next recovery zone
         if(nextOrderType == OP_BUY && zoneRecoveryCount < 8) {
             if(Bid <= lowerRecoveryZone) {
@@ -93,28 +82,26 @@ void OnTick() {
             }
         }
 
-        // exit recovery zone
-        if(Bid <= (lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits)))) {
+        // exit recovery zone profit
+        if(Bid <= lowerRecoveryZoneProfit) {
             CloseAllOrders();
 
             zoneRecoveryCount = 0;
             buyLotTotal = 0;
             sellLotTotal = 0;
             inTrade = false;
-            orderCount = OrderTotalForCurrentSymbol();
         }
-        if(Bid >= (upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits)))) {
+        if(Bid >= upperRecoveryZoneProfit) {
             CloseAllOrders();
 
             zoneRecoveryCount = 0;
             buyLotTotal = 0;
             sellLotTotal = 0;
             inTrade = false;
-            orderCount = OrderTotalForCurrentSymbol();
         }
 
 
-        // exit order maksimal zone recovery
+        // exit zone recovery max order
         if(nextOrderType == OP_BUY && zoneRecoveryCount == 8) {
             if(Bid <= middleRecoveryZone) {
                 CloseAllOrders();
@@ -123,7 +110,6 @@ void OnTick() {
                 buyLotTotal = 0;
                 sellLotTotal = 0;
                 inTrade = false;
-                orderCount = OrderTotalForCurrentSymbol();
             }
         }
         if(nextOrderType == OP_SELL && zoneRecoveryCount == 8) {
@@ -134,9 +120,43 @@ void OnTick() {
                 buyLotTotal = 0;
                 sellLotTotal = 0;
                 inTrade = false;
-                orderCount = OrderTotalForCurrentSymbol();
             }
         }
+    }
+}
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id,
+                  const long& lparam,
+                  const double& dparam,
+                  const string& sparam) {
+    if(id == CHARTEVENT_OBJECT_CLICK) {
+        if(sparam == "btn_buy") {
+            CreateFirstOrder(OP_BUY);
+
+            Sleep(150);
+            ObjectSetInteger(0, "btn_buy", OBJPROP_STATE, 0);
+        }
+
+        if(sparam == "btn_sell") {
+            CreateFirstOrder(OP_SELL);
+
+            Sleep(150);
+            ObjectSetInteger(0, "btn_sell", OBJPROP_STATE, 0);
+        }
+    }
+}
+//+------------------------------------------------------------------+
+void TestingEventListener() {
+    if(ObjectGetInteger(0, "btn_buy", OBJPROP_STATE)) {
+        CreateFirstOrder(OP_BUY);
+
+        ObjectSetInteger(0, "btn_buy", OBJPROP_STATE, 0);
+    }
+
+    if(ObjectGetInteger(0, "btn_sell", OBJPROP_STATE)) {
+        CreateFirstOrder(OP_SELL);
+
+        ObjectSetInteger(0, "btn_sell", OBJPROP_STATE, 0);
     }
 }
 //+------------------------------------------------------------------+
@@ -159,91 +179,49 @@ void DeleteObjects() {
     ObjectDelete(0, "btn_sell");
 }
 //+------------------------------------------------------------------+
-void EventListener() {
-    int isSuccess;
-
-    if(ObjectGetInteger(0, "btn_buy", OBJPROP_STATE)) {
-        ObjectSetInteger(0, "btn_buy", OBJPROP_STATE, 0);
-
-        isSuccess = OrderSend(Symbol(), OP_BUY, 0.01, Ask, 5, 0, 0);
-    }
-
-    if(ObjectGetInteger(0, "btn_sell", OBJPROP_STATE)) {
-        ObjectSetInteger(0, "btn_sell", OBJPROP_STATE, 0);
-
-        isSuccess = OrderSend(Symbol(), OP_SELL, 0.01, Bid, 5, 0, 0);
-    }
-}
-//+------------------------------------------------------------------+
-int OrderTotalForCurrentSymbol() {
-    int count = 0;
-
-    for(int i = 0; i < OrdersTotal(); i++) {
-        if(OrderSelect(i, SELECT_BY_POS)) {
-            if(OrderSymbol() == Symbol()) {
-                count++;
-            }
-        }
-    }
-
-    return count;
-}
-//+------------------------------------------------------------------+
-int GetLatestOrderTicket() {
-    int latestOrderTicket = -1;
-    datetime latestOrderTime = NULL;
-
-    for(int i = OrdersTotal()-1; i >= 0; i--) {
-        if(OrderSelect(i, SELECT_BY_POS)) {
-            if(OrderSymbol() == Symbol()) {
-                if(OrderOpenTime() > latestOrderTime) {
-                    if(OrderType() == OP_BUY || OrderType() == OP_SELL) {
-                        latestOrderTime = OrderOpenTime();
-                        latestOrderTicket = OrderTicket();
-                    }
-                }
-            }
-        }
-    }
-
-    return latestOrderTicket;
-}
-//+------------------------------------------------------------------+
-void HandleFirstOrder() {
-    int isSuccess;
+void CreateFirstOrder(int orderType) {
+    double entryPrice;
     double slPrice;
     double tpPrice;
 
-    if(OrderSelect(GetLatestOrderTicket(), SELECT_BY_TICKET)) {
-        if(OrderType() == OP_BUY) {
-            zoneRecoveryCount++;
-            buyLotTotal += OrderLots();
+    if(!inTrade && orderType == OP_BUY) {
+        entryPrice = Ask;
+        slPrice = entryPrice - ((recoveryZoneExit + recoveryZoneGap) / devider);
+        tpPrice = entryPrice + (recoveryZoneExit / devider);
 
-            upperRecoveryZone = OrderOpenPrice();
-            lowerRecoveryZone = OrderOpenPrice() - (recoveryZoneGap / MathPow(10, Digits));
+        if(OrderSend(Symbol(), OP_BUY, initialLotSize, entryPrice, 5, slPrice, tpPrice)) {
+            inTrade = true;
+            buyLotTotal += initialLotSize;
+            zoneRecoveryCount++;
+
+            upperRecoveryZone = entryPrice;
+            lowerRecoveryZone = entryPrice - (recoveryZoneGap / devider);
             middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
 
-            slPrice = OrderOpenPrice() - ((recoveryZoneExit + recoveryZoneGap) / MathPow(10, Digits));
-            tpPrice = OrderOpenPrice() + (recoveryZoneExit / MathPow(10, Digits));
-
-            isSuccess = OrderModify(OrderTicket(), OrderOpenPrice(), slPrice, tpPrice, 0);
+            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_SELL;
             CreateNextRecoveryOrder(nextOrderType);
         }
+    }
 
-        if(OrderType() == OP_SELL) {
+    if(!inTrade && orderType == OP_SELL) {
+        entryPrice = Bid;
+        slPrice = entryPrice + ((recoveryZoneExit + recoveryZoneGap) / devider);
+        tpPrice = entryPrice - (recoveryZoneExit / devider);
+
+        if(OrderSend(Symbol(), OP_SELL, initialLotSize, entryPrice, 5,slPrice, tpPrice)) {
+            inTrade = true;
+            sellLotTotal += initialLotSize;
             zoneRecoveryCount++;
-            sellLotTotal += OrderLots();
 
-            upperRecoveryZone = OrderOpenPrice() + (recoveryZoneGap / MathPow(10, Digits));
-            lowerRecoveryZone = OrderOpenPrice();
+            upperRecoveryZone = entryPrice + (recoveryZoneGap / devider);
+            lowerRecoveryZone = entryPrice;
             middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
 
-            slPrice = OrderOpenPrice() + ((recoveryZoneExit + recoveryZoneGap) / MathPow(10, Digits));
-            tpPrice = OrderOpenPrice() - (recoveryZoneExit / MathPow(10, Digits));
-
-            isSuccess = OrderModify(OrderTicket(), OrderOpenPrice(), slPrice, tpPrice, 0);
+            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_BUY;
             CreateNextRecoveryOrder(nextOrderType);
@@ -261,8 +239,8 @@ void CreateNextRecoveryOrder(int orderType) {
         nextOrderType = OP_SELL;
         lotSize = NormalizeDouble(((multiplier * sellLotTotal) - buyLotTotal) * 1.1, 2); // masih salah disii
         buyLotTotal += lotSize;
-        slPrice = lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits));
-        tpPrice = upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
+        tpPrice = upperRecoveryZone + (recoveryZoneExit / devider);
 
         isSuccess = OrderSend(Symbol(), OP_BUYSTOP, lotSize, upperRecoveryZone, 5, slPrice, tpPrice);
     }
@@ -271,8 +249,8 @@ void CreateNextRecoveryOrder(int orderType) {
         nextOrderType = OP_BUY;
         lotSize = NormalizeDouble(((multiplier * buyLotTotal) - sellLotTotal) * 1.1, 2); // masih salah disii
         sellLotTotal += lotSize;
-        slPrice = upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits));
-        tpPrice = lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = upperRecoveryZone + (recoveryZoneExit / devider);
+        tpPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
 
         isSuccess = OrderSend(Symbol(), OP_SELLSTOP, lotSize, lowerRecoveryZone, 5, slPrice, tpPrice);
     }
@@ -280,8 +258,6 @@ void CreateNextRecoveryOrder(int orderType) {
 //+------------------------------------------------------------------+
 void CloseAllOrders() {
     int isSuccess;
-
-    Print("Ini Harga keluarnya!!! " + DoubleToStr(Bid));
 
     for(int i = OrdersTotal() - 1; i >= 0; i--) {
         if(OrderSelect(i, SELECT_BY_POS)) {
