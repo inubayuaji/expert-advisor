@@ -28,10 +28,11 @@ sudah bisa dilakukan testing ke pair lainya
 #property link      "https://github.com/inubayuaji"
 #property version   "1.00"
 #property strict
-
+//--- input paramater
 input int recoveryZoneGap = 200; // Recovery Gap in Point
 input int recoveryZoneExit = 400; // Recovery Exit in Point
-
+input double initialLotSize = 0.01; // Initial Lot Size
+//--- global variable
 bool inTrade = false;
 int orderCount;
 int newOrderCount;
@@ -44,9 +45,6 @@ double lowerRecoveryZone;
 double middleRecoveryZone;
 double riskRewardRatio;
 double multiplier;
-
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
     riskRewardRatio = recoveryZoneExit / recoveryZoneGap;
@@ -54,17 +52,17 @@ int OnInit() {
     orderCount = OrderTotalForCurrentSymbol();
 
     DrawOBjects();
+    
+    if(initialLotSize > MarketInfo(Symbol(), MODE_MAXLOT) || initialLotSize < MarketInfo(Symbol(), MODE_MINLOT)) {
+        return INIT_PARAMETERS_INCORRECT;
+    }
 
     return INIT_SUCCEEDED;
 }
 //+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
     DeleteObjects();
 }
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick() {
     EventListener();
@@ -165,13 +163,13 @@ void EventListener() {
     if(ObjectGetInteger(0, "btn_buy", OBJPROP_STATE)) {
         ObjectSetInteger(0, "btn_buy", OBJPROP_STATE, 0);
 
-        isSuccess = OrderSend(Symbol(), OP_BUY, 0.01, Ask, 5, 0, 0);
+        isSuccess = OrderSend(Symbol(), OP_BUY, initialLotSize, Ask, 5, 0, 0);
     }
 
     if(ObjectGetInteger(0, "btn_sell", OBJPROP_STATE)) {
         ObjectSetInteger(0, "btn_sell", OBJPROP_STATE, 0);
 
-        isSuccess = OrderSend(Symbol(), OP_SELL, 0.01, Bid, 5, 0, 0);
+        isSuccess = OrderSend(Symbol(), OP_SELL, initialLotSize, Bid, 5, 0, 0);
     }
 }
 //+------------------------------------------------------------------+
