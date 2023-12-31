@@ -14,11 +14,7 @@
  * 12 januari 2021 posisi awal sell (6)
 
 # Pengembangan kedepan
-- risk menenegement tidak ada, kapan waktunya tidak lagi menggunakan zone recovery
-- kalkulasi maxsimal lot tidak ada sehingga diperlukkan mekanisme berapa maksimal lot
-- mencegah terjadinya banayak zone recovery
 - cara menghitung compund atau inisial lot saat modal sudah bertamba
-- calculasi nanti disederhanakkan agar perhitungan lebih cepat
 
 # Catatan
 untuk penerapan dasar EA ini sudah sesui tinggal kurang dikembangkan lagi agar lebih baik
@@ -26,7 +22,7 @@ sudah bisa dilakukan testing ke pair lainya
 */
 #property copyright "Inu Bayu Aji"
 #property link      "https://github.com/inubayuaji"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 //--- input paramater
 input int recoveryZoneGap = 200; // Recovery Gap in Point
@@ -42,10 +38,14 @@ double sellLotTotal = 0;
 double upperRecoveryZone;
 double lowerRecoveryZone;
 double middleRecoveryZone;
+double upperRecoveryZoneProfit;
+double lowerRecoveryZoneProfit;
 double riskRewardRatio;
+double devider;
 double multiplier;
 //+------------------------------------------------------------------+
 int OnInit() {
+    devider = MathPow(10, Digits);
     riskRewardRatio = recoveryZoneExit / recoveryZoneGap;
     multiplier = (riskRewardRatio + 1) / riskRewardRatio;
 
@@ -82,8 +82,8 @@ void OnTick() {
             }
         }
 
-        // exit recovery zone
-        if(Bid <= (lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits)))) {
+        // exit recovery zone profit
+        if(Bid <= lowerRecoveryZoneProfit) {
             CloseAllOrders();
 
             zoneRecoveryCount = 0;
@@ -91,7 +91,7 @@ void OnTick() {
             sellLotTotal = 0;
             inTrade = false;
         }
-        if(Bid >= (upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits)))) {
+        if(Bid >= upperRecoveryZoneProfit) {
             CloseAllOrders();
 
             zoneRecoveryCount = 0;
@@ -186,8 +186,8 @@ void CreateFirstOrder(int orderType) {
 
     if(!inTrade && orderType == OP_BUY) {
         entryPrice = Ask;
-        slPrice = entryPrice - ((recoveryZoneExit + recoveryZoneGap) / MathPow(10, Digits));
-        tpPrice = entryPrice + (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = entryPrice - ((recoveryZoneExit + recoveryZoneGap) / devider);
+        tpPrice = entryPrice + (recoveryZoneExit / devider);
 
         if(OrderSend(Symbol(), OP_BUY, initialLotSize, entryPrice, 5, slPrice, tpPrice)) {
             inTrade = true;
@@ -195,8 +195,11 @@ void CreateFirstOrder(int orderType) {
             zoneRecoveryCount++;
 
             upperRecoveryZone = entryPrice;
-            lowerRecoveryZone = entryPrice - (recoveryZoneGap / MathPow(10, Digits));
+            lowerRecoveryZone = entryPrice - (recoveryZoneGap / devider);
             middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
+
+            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_SELL;
             CreateNextRecoveryOrder(nextOrderType);
@@ -205,17 +208,20 @@ void CreateFirstOrder(int orderType) {
 
     if(!inTrade && orderType == OP_SELL) {
         entryPrice = Bid;
-        slPrice = entryPrice + ((recoveryZoneExit + recoveryZoneGap) / MathPow(10, Digits));
-        tpPrice = entryPrice - (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = entryPrice + ((recoveryZoneExit + recoveryZoneGap) / devider);
+        tpPrice = entryPrice - (recoveryZoneExit / devider);
 
         if(OrderSend(Symbol(), OP_SELL, initialLotSize, entryPrice, 5,slPrice, tpPrice)) {
             inTrade = true;
             sellLotTotal += initialLotSize;
             zoneRecoveryCount++;
 
-            upperRecoveryZone = entryPrice + (recoveryZoneGap / MathPow(10, Digits));
+            upperRecoveryZone = entryPrice + (recoveryZoneGap / devider);
             lowerRecoveryZone = entryPrice;
             middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
+
+            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_BUY;
             CreateNextRecoveryOrder(nextOrderType);
@@ -233,8 +239,8 @@ void CreateNextRecoveryOrder(int orderType) {
         nextOrderType = OP_SELL;
         lotSize = NormalizeDouble(((multiplier * sellLotTotal) - buyLotTotal) * 1.1, 2); // masih salah disii
         buyLotTotal += lotSize;
-        slPrice = lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits));
-        tpPrice = upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
+        tpPrice = upperRecoveryZone + (recoveryZoneExit / devider);
 
         isSuccess = OrderSend(Symbol(), OP_BUYSTOP, lotSize, upperRecoveryZone, 5, slPrice, tpPrice);
     }
@@ -243,8 +249,8 @@ void CreateNextRecoveryOrder(int orderType) {
         nextOrderType = OP_BUY;
         lotSize = NormalizeDouble(((multiplier * buyLotTotal) - sellLotTotal) * 1.1, 2); // masih salah disii
         sellLotTotal += lotSize;
-        slPrice = upperRecoveryZone + (recoveryZoneExit / MathPow(10, Digits));
-        tpPrice = lowerRecoveryZone - (recoveryZoneExit / MathPow(10, Digits));
+        slPrice = upperRecoveryZone + (recoveryZoneExit / devider);
+        tpPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
 
         isSuccess = OrderSend(Symbol(), OP_SELLSTOP, lotSize, lowerRecoveryZone, 5, slPrice, tpPrice);
     }
