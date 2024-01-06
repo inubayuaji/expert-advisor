@@ -21,8 +21,8 @@ untuk penerapan dasar EA ini sudah sesui tinggal kurang dikembangkan lagi agar l
 sudah bisa dilakukan testing ke pair lainya
 */
 #property copyright "Inu Bayu Aji"
-#property link      "https://github.com/inubayuaji"
-#property version   "1.10"
+#property link      "https://github.com/inubayuaji/expert-advisor"
+#property version   "2.00"
 #property strict
 //--- input paramater
 input int recoveryZoneGap = 200; // Recovery Gap in Point
@@ -30,7 +30,6 @@ input int recoveryZoneExit = 400; // Recovery Exit in Point
 input double initialLotSize = 0.01; // Initial Lot Size
 //--- global variable
 bool inTrade = false;
-int newOrderCount;
 int nextOrderType;
 int zoneRecoveryCount = 0;
 double buyLotTotal = 0;
@@ -70,14 +69,12 @@ void OnTick() {
     if(inTrade) {
         // make next recovery zone
         if(nextOrderType == OP_BUY && zoneRecoveryCount < 8) {
-            if(Bid <= lowerRecoveryZone) {
-                zoneRecoveryCount++;
+            if(Bid >= upperRecoveryZone) {
                 CreateNextRecoveryOrder(nextOrderType);
             }
         }
         if(nextOrderType == OP_SELL && zoneRecoveryCount < 8) {
-            if(Bid >= upperRecoveryZone) {
-                zoneRecoveryCount++;
+            if(Bid <= lowerRecoveryZone) {
                 CreateNextRecoveryOrder(nextOrderType);
             }
         }
@@ -85,19 +82,9 @@ void OnTick() {
         // exit recovery zone profit
         if(Bid <= lowerRecoveryZoneProfit) {
             CloseAllOrders();
-
-            zoneRecoveryCount = 0;
-            buyLotTotal = 0;
-            sellLotTotal = 0;
-            inTrade = false;
         }
         if(Bid >= upperRecoveryZoneProfit) {
             CloseAllOrders();
-
-            zoneRecoveryCount = 0;
-            buyLotTotal = 0;
-            sellLotTotal = 0;
-            inTrade = false;
         }
 
 
@@ -105,21 +92,11 @@ void OnTick() {
         if(nextOrderType == OP_BUY && zoneRecoveryCount == 8) {
             if(Bid <= middleRecoveryZone) {
                 CloseAllOrders();
-
-                zoneRecoveryCount = 0;
-                buyLotTotal = 0;
-                sellLotTotal = 0;
-                inTrade = false;
             }
         }
         if(nextOrderType == OP_SELL && zoneRecoveryCount == 8) {
             if(Bid >= middleRecoveryZone) {
                 CloseAllOrders();
-
-                zoneRecoveryCount = 0;
-                buyLotTotal = 0;
-                sellLotTotal = 0;
-                inTrade = false;
             }
         }
     }
@@ -181,15 +158,11 @@ void DeleteObjects() {
 //+------------------------------------------------------------------+
 void CreateFirstOrder(int orderType) {
     double entryPrice;
-    double slPrice;
-    double tpPrice;
 
     if(!inTrade && orderType == OP_BUY) {
         entryPrice = Ask;
-        slPrice = entryPrice - ((recoveryZoneExit + recoveryZoneGap) / devider);
-        tpPrice = entryPrice + (recoveryZoneExit / devider);
 
-        if(OrderSend(Symbol(), OP_BUY, initialLotSize, entryPrice, 5, slPrice, tpPrice)) {
+        if(OrderSend(Symbol(), OP_BUY, initialLotSize, entryPrice, 5, 0, 0) != -1) {
             inTrade = true;
             buyLotTotal += initialLotSize;
             zoneRecoveryCount++;
@@ -202,16 +175,13 @@ void CreateFirstOrder(int orderType) {
             lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_SELL;
-            CreateNextRecoveryOrder(nextOrderType);
         }
     }
 
     if(!inTrade && orderType == OP_SELL) {
         entryPrice = Bid;
-        slPrice = entryPrice + ((recoveryZoneExit + recoveryZoneGap) / devider);
-        tpPrice = entryPrice - (recoveryZoneExit / devider);
 
-        if(OrderSend(Symbol(), OP_SELL, initialLotSize, entryPrice, 5,slPrice, tpPrice)) {
+        if(OrderSend(Symbol(), OP_SELL, initialLotSize, entryPrice, 5, 0, 0) != -1) {
             inTrade = true;
             sellLotTotal += initialLotSize;
             zoneRecoveryCount++;
@@ -224,35 +194,31 @@ void CreateFirstOrder(int orderType) {
             lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
 
             nextOrderType = OP_BUY;
-            CreateNextRecoveryOrder(nextOrderType);
         }
     }
 }
 //+------------------------------------------------------------------+
 void CreateNextRecoveryOrder(int orderType) {
-    int isSuccess;
     double lotSize = 0;
-    double slPrice;
-    double tpPrice;
 
     if(orderType == OP_BUY) {
-        nextOrderType = OP_SELL;
         lotSize = NormalizeDouble(((multiplier * sellLotTotal) - buyLotTotal) * 1.1, 2); // masih salah disii
         buyLotTotal += lotSize;
-        slPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
-        tpPrice = upperRecoveryZone + (recoveryZoneExit / devider);
 
-        isSuccess = OrderSend(Symbol(), OP_BUYSTOP, lotSize, upperRecoveryZone, 5, slPrice, tpPrice);
+        if(OrderSend(Symbol(), orderType, lotSize, Ask, 5, 0, 0) != -1) {
+            zoneRecoveryCount++;
+            nextOrderType = OP_SELL;
+        }
     }
 
     if(orderType == OP_SELL) {
-        nextOrderType = OP_BUY;
         lotSize = NormalizeDouble(((multiplier * buyLotTotal) - sellLotTotal) * 1.1, 2); // masih salah disii
         sellLotTotal += lotSize;
-        slPrice = upperRecoveryZone + (recoveryZoneExit / devider);
-        tpPrice = lowerRecoveryZone - (recoveryZoneExit / devider);
 
-        isSuccess = OrderSend(Symbol(), OP_SELLSTOP, lotSize, lowerRecoveryZone, 5, slPrice, tpPrice);
+        if(OrderSend(Symbol(), orderType, lotSize, Bid, 5, 0, 0) != -1) {
+            zoneRecoveryCount++;
+            nextOrderType = OP_BUY;
+        }
     }
 }
 //+------------------------------------------------------------------+
@@ -276,5 +242,10 @@ void CloseAllOrders() {
             }
         }
     }
+
+    zoneRecoveryCount = 0;
+    buyLotTotal = 0;
+    sellLotTotal = 0;
+    inTrade = false;
 }
 //+------------------------------------------------------------------+
