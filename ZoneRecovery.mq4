@@ -15,14 +15,11 @@
 
 # Pengembangan kedepan
 - cara menghitung compund atau inisial lot saat modal sudah bertamba
-
-# Catatan
-untuk penerapan dasar EA ini sudah sesui tinggal kurang dikembangkan lagi agar lebih baik
-sudah bisa dilakukan testing ke pair lainya
+- midle price berdasarkan inisial order, jika order kedelapan agar nilai tengah tidak lebih dari spread
 */
 #property copyright "Inu Bayu Aji"
 #property link      "https://github.com/inubayuaji/expert-advisor"
-#property version   "2.00"
+#property version   "2.11"
 #property strict
 //--- input paramater
 input int recoveryZoneGap = 200; // Recovery Gap in Point
@@ -34,6 +31,8 @@ int nextOrderType;
 int zoneRecoveryCount = 0;
 double buyLotTotal = 0;
 double sellLotTotal = 0;
+double spread;
+double entryPrice;
 double upperRecoveryZone;
 double lowerRecoveryZone;
 double middleRecoveryZone;
@@ -151,28 +150,54 @@ void DrawOBjects() {
     ObjectSetString(0, "btn_sell", OBJPROP_TEXT, "Sell");
 }
 //+------------------------------------------------------------------+
+void DrawLine(double price, string name, int _color) {
+    if(ObjectCreate(0, name, OBJ_HLINE, 0, 0, price)) {
+        ObjectSetInteger(0, name, OBJPROP_COLOR, _color);
+        ObjectSetInteger(0 ,name, OBJPROP_STYLE, STYLE_DASHDOTDOT);
+        ObjectSetInteger(0 ,name, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0 ,name, OBJPROP_SELECTED, false);
+    }
+}
+//+------------------------------------------------------------------+
+void DrawZoneRecoveryLine(int orderType) {
+    if(orderType == OP_BUY) {
+        DrawLine(entryPrice, "upper_zone_recovery_entry", clrLimeGreen);
+    } else {
+        DrawLine(upperRecoveryZone + spread, "upper_zone_recovery_entry", clrLimeGreen);
+    }
+    DrawLine(lowerRecoveryZone, "lower_zone_recovery_entry", clrLimeGreen);
+    DrawLine(upperRecoveryZoneProfit, "upper_zone_recovery_exit", clrRed);
+    DrawLine(lowerRecoveryZoneProfit, "lower_zone_recovery_exit", clrRed);
+}
+//+------------------------------------------------------------------+
+void RemoveZoneRecoveryLine() {
+    ObjectDelete(0, "upper_zone_recovery_entry");
+    ObjectDelete(0, "lower_zone_recovery_entry");
+    ObjectDelete(0, "upper_zone_recovery_exit");
+    ObjectDelete(0, "lower_zone_recovery_exit");
+}
+//+------------------------------------------------------------------+
 void DeleteObjects() {
     ObjectDelete(0, "btn_buy");
     ObjectDelete(0, "btn_sell");
 }
 //+------------------------------------------------------------------+
 void CreateFirstOrder(int orderType) {
-    double entryPrice;
-
     if(!inTrade && orderType == OP_BUY) {
         entryPrice = Ask;
+        spread = Ask - Bid;
 
         if(OrderSend(Symbol(), OP_BUY, initialLotSize, entryPrice, 5, 0, 0) != -1) {
             inTrade = true;
             buyLotTotal += initialLotSize;
             zoneRecoveryCount++;
 
-            upperRecoveryZone = entryPrice;
+            upperRecoveryZone = entryPrice - spread;
             lowerRecoveryZone = entryPrice - (recoveryZoneGap / devider);
-            middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
+            middleRecoveryZone = (entryPrice + lowerRecoveryZone) / 2;
 
-            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
-            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
+            upperRecoveryZoneProfit = entryPrice + (recoveryZoneExit / devider) + spread;
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider) - spread;
 
             nextOrderType = OP_SELL;
         }
@@ -180,22 +205,25 @@ void CreateFirstOrder(int orderType) {
 
     if(!inTrade && orderType == OP_SELL) {
         entryPrice = Bid;
+        spread = Ask - Bid;
 
         if(OrderSend(Symbol(), OP_SELL, initialLotSize, entryPrice, 5, 0, 0) != -1) {
             inTrade = true;
             sellLotTotal += initialLotSize;
             zoneRecoveryCount++;
 
-            upperRecoveryZone = entryPrice + (recoveryZoneGap / devider);
+            upperRecoveryZone = entryPrice - spread + (recoveryZoneGap / devider);
             lowerRecoveryZone = entryPrice;
-            middleRecoveryZone = (upperRecoveryZone + lowerRecoveryZone) / 2;
+            middleRecoveryZone = (upperRecoveryZone + spread + lowerRecoveryZone) / 2;
 
-            upperRecoveryZoneProfit = upperRecoveryZone + (recoveryZoneExit / devider);
-            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider);
+            upperRecoveryZoneProfit = upperRecoveryZone + spread + (recoveryZoneExit / devider) + spread;
+            lowerRecoveryZoneProfit = lowerRecoveryZone - (recoveryZoneExit / devider) - spread;
 
             nextOrderType = OP_BUY;
         }
     }
+
+    DrawZoneRecoveryLine(orderType);
 }
 //+------------------------------------------------------------------+
 void CreateNextRecoveryOrder(int orderType) {
@@ -242,6 +270,8 @@ void CloseAllOrders() {
             }
         }
     }
+
+    RemoveZoneRecoveryLine();
 
     zoneRecoveryCount = 0;
     buyLotTotal = 0;
